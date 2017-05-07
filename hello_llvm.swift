@@ -7,8 +7,8 @@ let int32 = LLVMInt32Type()
 let paramTypes = [int32, int32]
 
 // need to convert paramTypes into UnsafeMutablePointer because of API requirements
-var paramTypesRef = UnsafeMutablePointer<LLVMTypeRef>.alloc(paramTypes.count)
-paramTypesRef.initializeFrom(paramTypes)
+var paramTypesRef = UnsafeMutablePointer<LLVMTypeRef?>.allocate(capacity: paramTypes.count)
+paramTypesRef.initialize(from: paramTypes)
 
 let returnType = int32
 let functionType = LLVMFunctionType(returnType, paramTypesRef, UInt32(paramTypes.count), 0)
@@ -29,7 +29,7 @@ LLVMLinkInMCJIT()
 LLVMInitializeNativeTarget()
 LLVMInitializeNativeAsmPrinter()
 
-func runSumFunction(a: Int, _ b: Int) -> Int {
+func runSumFunction(_ a: Int, _ b: Int) -> Int {
   let functionType = LLVMFunctionType(returnType, nil, 0, 0)
   let wrapperFunction = LLVMAddFunction(module, "", functionType)
   defer {
@@ -42,46 +42,43 @@ func runSumFunction(a: Int, _ b: Int) -> Int {
   LLVMPositionBuilderAtEnd(builder, entryBlock)
 
   let argumentsCount = 2
-  var argumentValues = [LLVMValueRef]()
-  
-  argumentValues.append(LLVMConstInt(int32, UInt64(a), 0))
-  argumentValues.append(LLVMConstInt(int32, UInt64(b), 0))
+  var argumentValues = [LLVMConstInt(int32, UInt64(a), 0),
+                        LLVMConstInt(int32, UInt64(b), 0)]
 
-  let argumentsPointer = UnsafeMutablePointer<LLVMValueRef>.alloc(strideof(LLVMValueRef) * argumentsCount)
+  let argumentsPointer = UnsafeMutablePointer<LLVMValueRef?>.allocate(capacity: MemoryLayout<LLVMValueRef>.stride * argumentsCount)
   defer {
-    argumentsPointer.dealloc(strideof(LLVMValueRef) * argumentsCount)
+    argumentsPointer.deallocate(capacity: MemoryLayout<LLVMValueRef>.stride * argumentsCount)
   }
-  argumentsPointer.initializeFrom(argumentValues)
+  argumentsPointer.initialize(from: argumentValues)
 
-  let callTemp = LLVMBuildCall(builder, 
+  let callTemp = LLVMBuildCall(builder,
                                sumFunction,
                                argumentsPointer,
                                UInt32(argumentsCount), "sum_temp")
   LLVMBuildRet(builder, callTemp)
 
-  let executionEngine = UnsafeMutablePointer<LLVMExecutionEngineRef>.alloc(strideof(LLVMExecutionEngineRef))
-  let error = UnsafeMutablePointer<UnsafeMutablePointer<Int8>>.alloc(strideof(UnsafeMutablePointer<Int8>))
+  let executionEngine = UnsafeMutablePointer<LLVMExecutionEngineRef?>.allocate(capacity: MemoryLayout<LLVMExecutionEngineRef>.stride)
+  let error = UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>.allocate(capacity: MemoryLayout<UnsafeMutablePointer<Int8>>.stride)
 
   defer {
-    error.dealloc(strideof(UnsafeMutablePointer<Int8>))
-    executionEngine.dealloc(strideof(LLVMExecutionEngineRef))
+    error.deallocate(capacity: MemoryLayout<UnsafeMutablePointer<Int8>>.stride)
+    executionEngine.deallocate(capacity: MemoryLayout<LLVMExecutionEngineRef>.stride)
   }
 
   let res = LLVMCreateExecutionEngineForModule(executionEngine, module, error)
   if res != 0 {
-    let msg = String.fromCString(error.memory)
+    let msg = String(cString: error.pointee!)
     print("\(msg)")
     exit(1)
   }
 
-  let value = LLVMRunFunction(executionEngine.memory, wrapperFunction, 0, nil)
+  let value = LLVMRunFunction(executionEngine.pointee, wrapperFunction, 0, nil)
   let result = LLVMGenericValueToInt(value, 0)
   return Int(result)
 }
 
-print("\(runFunction(5, 6))")
-print("\(runFunction(7, 142))")
-print("\(runFunction(557, 1024))")
+print("\(runSumFunction(5, 6))")
+print("\(runSumFunction(7, 142))")
+print("\(runSumFunction(557, 1024))")
 
 LLVMDisposeModule(module)
-
